@@ -51,16 +51,21 @@ How the design copes:
 
 > **⚠️ The scraper logs in with whatever credentials you give it, and can do anything those credentials can do on the website.** The code only reads (checked by a scan of the `israeli-bank-scrapers` source, Oct 2026), but a malicious or buggy version could transfer money or take other actions. **Use read-only users only.**
 
-All of our banks and card companies offer **read-only users** (הרשאת צפייה). Use them for every account in `moneyman.json`. Then even a compromised scraper can leak financial data, but it can't move money.
+All of our banks and card companies offer **read-only users** (הרשאת צפייה). Use them for every account in `moneyman.json`. This removes the most direct way to lose money: the bank itself refuses transfers for that user. It does **not** bound the damage of a compromised scraper (see below).
 
 Beyond that, the stack trusts the open-source community (both projects are public, actively reviewed, and widely used in Israel), with a few cheap safeguards:
 
 - **Pinned versions, validated before upgrading.** No `:latest`. Before moving to a new moneyman tag, confirm the scraper code is still read-only (see [Updates](#operations)).
 - **Secrets only on the LXC.** `moneyman.json` and `~/.actualrc.json` are `chmod 600` and never committed (**the repo is public**).
-- **No internet exposure.** Port 5006 stays on the LAN, with no port forwarding.
+- **No internet exposure.** Actual's web port stays on the LAN, with no port forwarding.
 - **Bank alerts** (SMS/app) on logins and outgoing transfers.
 
-Accepted risk: a compromised npm dependency isn't covered by the code review. With read-only credentials, the worst case is a leak of financial data, not loss of money.
+**Accepted risk.** The code review doesn't cover moneyman's npm dependencies, and malicious code that runs on the server can do more than misuse the bank logins:
+- leak the logins themselves, including national ID numbers and card digits (useful for phishing and identity fraud), and all transaction history;
+- read other secrets in the LXC (the Actual password, Claude Code's credentials);
+- attack other machines on the home network from the LXC.
+
+Read-only users, an unprivileged LXC and pinned, reviewed versions make this unlikely, not impossible.
 
 Only moneyman touches the banks. Actual, the CLI, Claude Code and the future Telegram bot can only reach Actual's copy of the data.
 
@@ -93,7 +98,7 @@ services:
   actual-server:
     image: actualbudget/actual-server:26.9.0     # must match moneyman's bundled API (see "Updates")
     restart: unless-stopped
-    ports: ["5006:5006"]
+    ports: ["5006:5006"]                       # host:container; host side can be any free port
     volumes: ["actual_data:/data"]
 
   moneyman:
