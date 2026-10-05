@@ -67,6 +67,12 @@ Beyond that, the stack trusts the open-source community (both projects are publi
 
 Read-only users, an unprivileged LXC and pinned, reviewed versions make this unlikely, not impossible.
 
+> **⚠️ No network firewall: the code check before every upgrade is the main safeguard.** Nothing restricts where the LXC can send data. **Never roll out a new moneyman version (or bump `israeli-bank-scrapers`) without first checking its code changes** (see [Updates](#operations)). Skipping the check means running unreviewed code that holds your bank logins.
+>
+> Future hardening, if wanted:
+> - **moneyman domain firewall** (`options.security`: `blockByDefault` + per-scraper `ALLOW` rules). This is cheap, but it runs inside moneyman, so it stops a malicious dependency, not a malicious moneyman.
+> - **Proxmox outgoing-traffic firewall** on the LXC (banks, registries, npm, Anthropic only; no LAN access). Nothing inside the LXC can bypass it.
+
 Only moneyman touches the banks. Actual, the CLI, Claude Code and the future Telegram bot can only reach Actual's copy of the data.
 
 ---
