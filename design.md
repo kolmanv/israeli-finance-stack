@@ -161,7 +161,7 @@ docker compose run --rm moneyman
 
 ### 6. Claude Code
 
-Install Node 22+, Claude Code and `npm i -g @actual-app/cli`. Create `~/.actualrc.json` (chmod 600) with `serverUrl`, `password` and `syncId`. Work from a folder whose `CLAUDE.md` says:
+Install Node 22+ (Debian 13 ships 20: use the official Node LTS tarball), Claude Code (`curl -fsSL https://claude.ai/install.sh | bash`) and `npm i -g @actual-app/cli@<same version as actual-server>` (the CLI pins `@actual-app/api` exactly, so it has the same version coupling as moneyman). Create `~/.actualrc.json` (chmod 600) with `serverUrl`, `password` and `syncId`. Work from a folder whose `CLAUDE.md` says:
 - Use the `actual` CLI (`actual query run`, `actual transactions list`, …) with JSON output.
 - **Amounts are integer agorot:** −45000 = −₪450.00.
 - Analysis is read-only. Show any change (category, rule, split, payee merge) and get confirmation first.
@@ -198,10 +198,11 @@ The uncategorized pile shrinks each week.
 ## Operations
 
 - **Backups:** `vzdump` / PBS of the LXC covers everything (`actual_data` is the only state). Actual can also export a `.zip`.
-- **Failure check (weekly):** `tail /var/log/moneyman.status`, or ask Claude "last imported transaction per account?" An account silent for days means its scraper broke: update moneyman once a fix ships, and `daysBack` backfills.
+- **Failure check (weekly):** moneyman **always exits 0**, even when a scraper fails, so `moneyman.status` only proves the run completed. Check `grep -a 'error:' /var/log/moneyman.log` (needs `DEBUG=moneyman:*`), or ask Claude "last imported transaction per account?" An account silent for days means its scraper broke: update moneyman once a fix ships, and `daysBack` backfills. Leumi is flaky (page timeouts): a single failed run is normal.
+- **Logs:** `/var/log/moneyman.log` (about 25k lines per full run with debug on), rotated daily by `/etc/logrotate.d/moneyman`, 14 days kept. They contain transaction details but no passwords; root-only.
 - **Updates:**
   - **Check the code first (moneyman and `israeli-bank-scrapers`).** Have Claude Code review the diff from the current tag to the new one, in moneyman and in the scraper version it bundles (`package-lock.json`). Upgrade only if the changes touch nothing but login, navigation and reading: no new form submissions, payment or transfer endpoints, or unexpected domains.
-  - **Version coupling.** moneyman bundles its own `@actual-app/api`. An Actual release with database migrations makes an older API fail with `out-of-sync-migrations`, and moneyman lags Actual (its API bumps have been closed unmerged since Feb 2026). So upgrade `actual-server` only to the version moneyman bundles (`@actual-app/api` in its `package-lock.json`). If the lag hurts, use a two-line derived image: `FROM ghcr.io/daniel-hauser/moneyman:<tag>` + `RUN npm install @actual-app/api@<server version>` (open moneyman PR #921 would make this an env var).
+  - **Version coupling.** moneyman bundles its own `@actual-app/api`. An Actual release with database migrations makes an older API fail with `out-of-sync-migrations`, and moneyman lags Actual (its API bumps have been closed unmerged since Feb 2026). So upgrade `actual-server` (and `@actual-app/cli`) only to the version moneyman bundles (`@actual-app/api` in its `package-lock.json`). If the lag hurts, use a two-line derived image: `FROM ghcr.io/daniel-hauser/moneyman:<tag>` + `RUN npm install @actual-app/api@<server version>` (open moneyman PR #921 would make this an env var).
   - **Status on 2026-10-05:** Actual v26.10.0 has a migration. moneyman v2026.09.28.1 bundles API 26.9.0, so stay on **26.9.0**.
 
 ---
