@@ -73,7 +73,7 @@ Only moneyman touches the banks. Everything else reaches only Actual's data.
 
 ### 1. LXC (Proxmox)
 
-- Debian 12, unprivileged, **2 vCPU, 4 GB RAM** (Chromium), 16 GB disk, time zone `Asia/Jerusalem`.
+- Debian 13, unprivileged, **2 vCPU, 4 GB RAM** (Chromium), 16 GB disk, time zone `Asia/Jerusalem`.
 - `pct set <CTID> --features nesting=1,keyctl=1` (needed for Docker).
 - Inside: `curl -fsSL https://get.docker.com | sh`. Chromium ships in moneyman's image (headless, `--no-sandbox`, one browser at a time).
 
