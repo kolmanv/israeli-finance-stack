@@ -49,22 +49,18 @@ How the design copes:
 
 ## Security
 
-> **⚠️ The scraper logs in with whatever credentials you give it, and can do anything those credentials can do on the website.** The code only reads, but a compromised version (a malicious update to moneyman, `israeli-bank-scrapers` or any of their npm dependencies) could transfer money or take other actions. **Use read-only users only.**
+> **⚠️ The scraper logs in with whatever credentials you give it, and can do anything those credentials can do on the website.** The code only reads (checked by a scan of the `israeli-bank-scrapers` source, Oct 2026), but a malicious or buggy version could transfer money or take other actions. **Use read-only users only.**
 
-All of our banks and card companies offer **read-only users** (הרשאת צפייה). Use them for every account in `moneyman.json`. Then a full compromise can leak financial data, but it can't move money.
+All of our banks and card companies offer **read-only users** (הרשאת צפייה). Use them for every account in `moneyman.json`. Then even a compromised scraper can leak financial data, but it can't move money.
 
-Still applied, because read-only credentials still expose all your financial data:
+Beyond that, the stack trusts the open-source community (both projects are public, actively reviewed, and widely used in Israel), with a few cheap safeguards:
 
-| Measure | Protects against |
-|---|---|
-| **Pin images to exact versions.** No `:latest`. Upgrade deliberately, after reading the release notes | Malicious or broken updates |
-| **moneyman domain firewall:** `blockByDefault: true` + `ALLOW` only each institution's own domains | Credentials or data sent to an attacker's server |
-| **Disable moneyman's IP lookup** (`getIpInfoUrl: false`) | An unnecessary call to a third party (ipinfo.io) |
-| **Claude Code runs as a separate non-root user** that can't read `moneyman.json` | Claude (or anything it runs) reading bank credentials |
-| **Secrets only on the LXC:** `moneyman.json` and `~/.actualrc.json` with `chmod 600`, never in git (**the repo is public**) | Leaks through the repo |
-| **No internet exposure:** port 5006 on the LAN only, no port forwarding | Break-ins |
-| **Bank alerts** (SMS/app) on logins and outgoing transfers | Noticing anything unexpected fast |
-| *Optional:* Proxmox firewall on the LXC, allowing outgoing traffic only to the banks, image registries, npm and Anthropic | A backstop if moneyman's own firewall is bypassed |
+- **Pinned versions, validated before upgrading.** No `:latest`. Before moving to a new moneyman tag, confirm the scraper code is still read-only (see [Updates](#operations)).
+- **Secrets only on the LXC.** `moneyman.json` and `~/.actualrc.json` are `chmod 600` and never committed (**the repo is public**).
+- **No internet exposure.** Port 5006 stays on the LAN, with no port forwarding.
+- **Bank alerts** (SMS/app) on logins and outgoing transfers.
+
+Accepted risk: a compromised npm dependency isn't covered by the code review. With read-only credentials, the worst case is a leak of financial data, not loss of money.
 
 Only moneyman touches the banks. Actual, the CLI, Claude Code and the future Telegram bot can only reach Actual's copy of the data.
 
@@ -142,15 +138,7 @@ Create a **read-only user** at each bank and card company and use those credenti
     "localJson": { "enabled": true, "path": "/app/output" }
   },
   "options": {
-    "scraping": { "daysBack": 30 },
-    "logging": { "getIpInfoUrl": false },
-    "security": {
-      "blockByDefault": true,
-      "firewallSettings": [
-        "hapoalim ALLOW bankhapoalim.co.il",
-        "isracard ALLOW isracard.co.il"
-      ]
-    }
+    "scraping": { "daysBack": 30 }
   }
 }
 ```
@@ -164,7 +152,6 @@ Create a **read-only user** at each bank and card company and use those credenti
 | `username`, `nationalID`, `password` | `yahav` |
 
 - **`accounts` mapping:** the keys are the account or card numbers as moneyman reports them. Do a first run with only `localJson` enabled and read them from the output files.
-- **Firewall:** some sites load from extra domains (CDNs, login services). Check the log on the first run for blocked domains and add only the ones that belong to the institution. Also confirm the import to `actual-server` isn't blocked.
 
 ### 5. First import, then schedule
 
@@ -177,7 +164,7 @@ docker compose run --rm moneyman
 
 ### 6. Claude Code
 
-Create a non-root user (e.g. `finance`) that **can't read `/opt/finance`**. As that user: install Node 22+, Claude Code, and `npm i -g @actual-app/cli`. Create `~/.actualrc.json` (chmod 600) with `serverUrl`, `password` and `syncId`, and work from a folder whose `CLAUDE.md` says:
+Install Node 22+, Claude Code, and `npm i -g @actual-app/cli`. Create `~/.actualrc.json` (chmod 600) with `serverUrl`, `password` and `syncId`, and work from a folder whose `CLAUDE.md` says:
 
 - Use the `actual` CLI (`actual query run`, `actual transactions list`, …) with JSON output.
 - **Amounts are integer agorot:** −45000 = −₪450.00.
@@ -220,12 +207,13 @@ The result is predictable, and the uncategorized pile shrinks each week.
 - **Updates (Actual ↔ moneyman version coupling):** moneyman bundles its own `@actual-app/api`. If an Actual release changes the database layout (migrations), an older API fails with `out-of-sync-migrations`. moneyman lags Actual: its automatic API bumps have been closed unmerged since Feb 2026, and the version moves irregularly.
   - **Default:** upgrade `actual-server` only to the version matching moneyman's bundled API (check `@actual-app/api` in moneyman's `package-lock.json` for the release tag).
   - **Fallback if the lag hurts:** a two-line derived image, `FROM ghcr.io/daniel-hauser/moneyman:<tag>` + `RUN npm install @actual-app/api@<server version>`. (Open moneyman PR #921 would make this an env var.)
+  - **Before any moneyman upgrade, validate that it's still read-only.** Ask Claude Code to review the diff from the current tag to the new one, in both moneyman and the `israeli-bank-scrapers` version it bundles (see `package-lock.json`). It should confirm the changes only touch login, navigation and reading data: no new form submissions, payment or transfer endpoints, or calls to unexpected domains. Upgrade only if it passes, and update the verified versions in [Security](#security).
   - **Status on 2026-10-05:** Actual v26.10.0 is out (with a migration). moneyman v2026.09.28.1 bundles API 26.9.0, so stay on **26.9.0**.
 
 ---
 
 ## Later
 
-1. **Telegram via Claude Code Channels.** Official plugin, no code (research preview). Pair both spouses' Telegram accounts. Requires a long-running Claude Code session (as the `finance` user).
+1. **Telegram via Claude Code Channels.** Official plugin, no code (research preview). Pair both spouses' Telegram accounts. Requires a long-running Claude Code session in the LXC.
 2. **If Channels isn't enough** (inline Approve/Split buttons, a strict tool whitelist, pushes after each import): a small Claude Agent SDK bot, fed by moneyman's `webPost` destination.
 3. **Hebrew UI** in Actual: not available (under 1% translated). Revisit later.
