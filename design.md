@@ -1,331 +1,162 @@
-```markdown
-# System Design Specification: Israeli Financial Automation & Shared AI Assistant
+# Israeli Finance Stack
 
-## 1. High-Level System Architecture
+Pull transactions from Israeli banks and credit cards into a self-hosted budgeting app, and analyze them by talking to Claude.
 
-The system provides a local-first, privacy-focused financial data pipeline that ingests transactions from Israeli banks and credit card companies, stores them in a relational database, syncs them to Actual Budget, and exposes a shared Telegram interface powered by an LLM with strict tool-calling boundaries.
+**No custom code.** Every component is an existing open-source tool. This repo holds only these setup instructions. The configuration is a handful of small files, shown below.
 
-
-```
-
-```
-                              [ HOME SERVER DOCKER NETWORK ]
-                             ┌─────────────────────────────────┐
-                             │  Container 1: actual-server     │
-                             │  - Web UI (Chromebook / Mobile) │
-                             │  - Local SQLite Budget Storage  │
-                             └────────────────┬────────────────┘
-                                              │ Local API (HTTP)
-                                              ▼
-
-```
-
-┌──────────────────────┐  HTTPS  ┌─────────────────────────────────┐  SQL   ┌───────────────────────────┐
-│ TELEGRAM GROUP CHAT  ├────────►│  Container 2: finance-bot-agent ├───────►│ Container 3: postgres     │
-│ (You + Wife)         │◄────────┤  - Telegram Interface Daemon    │◄───────┤ - Raw Ingestion Archive   │
-└──────────────────────┘         │  - LLM Function Calling Engine  │        │ - Vendor Rules Engine     │
-│  - Strict API / Tool Sandbox    │        └─────────────▲─────────────┘
-└────────────────┬────────────────┘                      │
-│ External API                          │ Local Write
-▼                                       │
-┌─────────────────────────────────┐                      │
-│ External LLM (Claude / Gemini)  │                      │
-└─────────────────────────────────┘                      │
-│
-┌─────────────────────────────────┐                      │
-│ Container 4: bank-ingestor      ├──────────────────────┘
-│ - israeli-bank-scrapers (Cron)  │
-└─────────────────────────────────┘
-
-```
-
-```
+**Priorities:** P0 is analysis ("where does our money go?"). P1 is envelope budgeting. Telegram comes later.
 
 ---
 
-## 2. Component Breakdown
+## Architecture
 
-### Container 1: `actual-server`
+```
+ Proxmox LXC "finance" ─────────────────────────────────────────────────┐
+ │                                                                      │
+ │  moneyman (cron, 2×/day)          actual-server :5006               │
+ │  israeli-bank-scrapers ──import──► budget data (/data volume)  ◄──── browser (UI, reports)
+ │                                        ▲                             │
+ │  Claude Code ── @actual-app/cli ───────┘                             │
+ │  (analysis; Telegram later via Channels)                             │
+ └──────────────────────────────────────────────────────────────────────┘
+```
 
-* **Role:** Zero-based envelope budgeting engine and primary web UI.
-* **Storage:** Local SQLite database file.
-* **Interface:** Accessible via Chrome OS / browser as a Progressive Web App (PWA). Exposed on home network port `5006`.
+| Component | What it does | Source |
+|---|---|---|
+| **Actual Budget** (`actual-server`) | The single source of truth: transactions, categories, rules, envelopes, reports, web UI | [actualbudget/actual](https://github.com/actualbudget/actual) (MIT) |
+| **moneyman** | Logs into banks and cards with `israeli-bank-scrapers`, imports into Actual. Runs once and exits, so cron schedules it | [daniel-hauser/moneyman](https://github.com/daniel-hauser/moneyman) (MIT) |
+| **`@actual-app/cli`** | Official CLI: query and edit the budget, JSON output. This is Claude Code's interface to the data | Part of Actual |
+| **Claude Code** | Analysis by conversation. Later also the Telegram interface (Channels) | Anthropic |
 
-### Container 2: `postgres`
+### Key decisions
 
-* **Role:** Persistent relational archive for raw scraper outputs, transaction deduplication keys, vendor classification rules, and audit logs.
-* **Storage:** Persistent Docker volume (`postgres_data`).
-
-### Container 3: `bank-ingestor`
-
-* **Role:** Automated daily ingestion daemon using `israeli-bank-scrapers`.
-* **Execution:** Scheduled via internal cron daemon (runs daily at 03:00 AM).
-* **Credentials:** Reads encrypted credentials from mounted local `.env` file.
-
-### Container 4: `finance-bot-agent`
-
-* **Role:** Telegram bot service connected to Claude/Gemini API via structured Function Calling.
-* **Execution:** Long-polling daemon listening to the whitelisted Telegram Group ID.
-* **Tools:** Bound to explicit API methods (no system shell execution).
+- **Actual is the only database.** It already stores transactions, rules and categories. Duplicates are skipped by `imported_id`. There's no Postgres. Raw scraper output is also kept as dated JSON files, for debugging only.
+- **moneyman instead of a custom scraper service.** It already handles scheduling, config, a Chromium image, and export to Actual. It imports the *charged* amount, so installments (תשלומים) arrive as monthly charges. Pending transactions are skipped until they settle.
+- **The CLI instead of custom tools or MCP.** Claude Code calls `actual …` directly. `actual-mcp` stays an option if a non-shell client needs it.
+- **No push events.** Israeli banks offer no consumer APIs, so polling twice a day is the only option.
 
 ---
 
-## 3. Security, Isolation & Sandboxing Model
+## Setup
+
+### 1. Create the LXC (Proxmox)
+
+- Template: Debian 12. Size: **2 vCPU, 4 GB RAM** (Chromium is memory-hungry), 16 GB disk. Unprivileged.
+- Features: `pct set <CTID> --features nesting=1,keyctl=1` (required for Docker).
+- Time zone: `Asia/Jerusalem`.
+- Inside the LXC: `curl -fsSL https://get.docker.com | sh`
+
+### 2. Files
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        SECURITY & ISOLATION MODEL                      │
-├────────────────────────────────────────────────────────────────────────┤
-│ 1. Network Boundary: Containers reside on an isolated bridge network.   │
-│ 2. DB Permissions: Non-admin 'bot_user' restricted to DML operations.   │
-│ 3. Tool Sandboxing: LLM execution context limited to 4 specific code   │
-│    functions (no shell, filesystem, or arbitrary network access).      │
-│ 4. Access Control: Telegram message handler drops requests from        │
-│    unlisted User/Chat IDs before passing context to LLM.               │
-└────────────────────────────────────────────────────────────────────────┘
-
-```
-
-### Access Control Rules
-
-1. **Telegram User Whitelist:** Hardcoded array of authorized User IDs (`ALLOWED_TELEGRAM_IDS=[12345678, 87654321]`). Unrecognized user messages are silently dropped.
-2. **Database Permissions:** The bot connects to PostgreSQL as `bot_user` with permissions restricted to `SELECT`, `INSERT`, and `UPDATE` on specific tables (`raw_transactions`, `vendor_rules`). DDL operations (`DROP`, `ALTER`, `TRUNCATE`) are disabled.
-3. **LLM Function Whitelist:** The LLM agent receives only four callable tool definitions:
-* `query_envelope_balance(category_name: str)`
-* `post_transaction(amount: float, payee: str, category: str, notes: str)`
-* `split_transaction(parent_id: str, allocations: list)`
-* `get_unlabeled_transactions()`
-
-
-
----
-
-## 4. Proxmox LXC & Environment Provisioning
-
-To maintain 100% portability across non-Proxmox users while providing native Proxmox advantages (snapshots, `vzdump` backups, resource limits), the entire stack is packaged into a single `docker-compose.yml` designed to run inside a single unprivileged Proxmox LXC container (or any standard Linux host).
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ PROXMOX VE HOST                                         │
-│                                                         │
-│  ┌───────────────────────────────────────────────────┐  │
-│  │ PROXMOX LXC CONTAINER (ID: 105 - "finance-stack") │  │
-│  │  - Allocated: 2 Cores, 2GB RAM, 16GB Disk         │  │
-│  │  - Proxmox Backup Server / vzdump enabled         │  │
-│  │                                                   │  │
-│  │  ┌─────────────────────────────────────────────┐  │  │
-│  │  │ DOCKER ENGINE                               │  │  │
-│  │  │  ├── actual-server                          │  │  │
-│  │  │  ├── finance-postgres                       │  │  │
-│  │  │  ├── bank-ingestor                          │  │  │
-│  │  │  └── finance-bot-agent                      │  │  │
-│  │  └─────────────────────────────────────────────┘  │  │
-│  └───────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-
-```
-
-### Proxmox LXC Setup Guidelines
-
-* **Container Specifications:** Debian 12 or Ubuntu 24.04 CT template, 2 vCPUs, 2048 MB RAM, 16 GB Disk.
-* **LXC Feature Flag:** Enable **Nesting** (`nesting=1`). Required for Docker-in-LXC execution.
-* **Quick Provisioning Command (inside Proxmox node shell or LXC):**
-```bash
-# Inside LXC: Install Docker & Clone Stack
-curl -fsSL [https://get.docker.com](https://get.docker.com) | sh
-git clone [https://github.com/your-repo/israeli-finance-stack.git](https://github.com/your-repo/israeli-finance-stack.git)
-cd israeli-finance-stack
-chmod +x setup.sh && ./setup.sh
-
-```
-
-
-
----
-
-## 5. Turnkey Deployment Specification ("Under 1 Hour" Setup)
-
-### Directory Structure
-
-```
-israeli-finance-stack/
+/opt/finance/
 ├── docker-compose.yml
-├── setup.sh
-├── .env.example
-├── init.sql
-└── services/
-    ├── ingestor/
-    │   ├── Dockerfile
-    │   └── scraper.js
-    └── bot/
-        ├── Dockerfile
-        ├── bot.py
-        └── tools.py
-
+├── moneyman.json        # credentials, chmod 600, NEVER committed
+└── output/              # raw scraper JSON (written by moneyman)
 ```
 
-### `docker-compose.yml`
+`docker-compose.yml`:
 
 ```yaml
-version: '3.8'
-
-networks:
-  finance-net:
-    driver: bridge
-
-volumes:
-  postgres_data:
-  actual_data:
-
 services:
   actual-server:
-    image: actualbudget/actual-server:latest
-    container_name: actual-server
+    image: actualbudget/actual-server:26.10.0   # pin; see "Updates"
     restart: unless-stopped
-    ports:
-      - "5006:5006"
-    volumes:
-      - actual_data:/data
-    networks:
-      - finance-net
+    ports: ["5006:5006"]
+    volumes: ["actual_data:/data"]
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: finance-postgres
-    restart: unless-stopped
+  moneyman:
+    image: ghcr.io/daniel-hauser/moneyman:latest
+    profiles: ["job"]                  # not started by `up`; run by cron
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-finances}
-      POSTGRES_USER: ${POSTGRES_USER:-bot_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MONEYMAN_CONFIG_PATH: /config/moneyman.json
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    networks:
-      - finance-net
+      - ./moneyman.json:/config/moneyman.json:ro
+      - ./output:/app/output
+    depends_on: [actual-server]
 
-  bank-ingestor:
-    build: ./services/ingestor
-    container_name: bank-ingestor
-    restart: unless-stopped
-    env_file: .env
-    depends_on:
-      - postgres
-    networks:
-      - finance-net
-
-  finance-bot-agent:
-    build: ./services/bot
-    container_name: finance-bot-agent
-    restart: unless-stopped
-    env_file: .env
-    depends_on:
-      - postgres
-      - actual-server
-    networks:
-      - finance-net
-
+volumes:
+  actual_data:
 ```
 
-### `setup.sh` Workflow
+Start Actual: `cd /opt/finance && docker compose up -d`
+
+### 3. Prepare Actual
+
+1. Open `http://<lxc-ip>:5006`, set the server password, and create a budget.
+2. Create **one account per bank account and per card**.
+3. Note the **Sync ID** (Settings → Advanced) and each account's ID (`actual accounts list`, after step 6).
+
+### 4. Connect banks and cards (`moneyman.json`)
+
+moneyman logs in with the **same credentials you use on each website**.
+
+```jsonc
+{
+  "accounts": [
+    { "companyId": "hapoalim", "userCode": "…", "password": "…" },
+    { "companyId": "isracard", "id": "…", "card6Digits": "…", "password": "…" }
+  ],
+  "storage": {
+    "actual": {
+      "serverUrl": "http://actual-server:5006",
+      "password": "<actual server password>",
+      "budgetId": "<Sync ID>",
+      "accounts": { "<account / card number>": "<Actual account id>" }
+    },
+    "localJson": { "enabled": true, "path": "/app/output" }
+  },
+  "options": { "scraping": { "daysBack": 10 } }
+}
+```
+
+| Login fields | Institutions (`companyId`) |
+|---|---|
+| `username`, `password` | `leumi`, `mizrahi`, `max`, `visaCal`, `otsarHahayal`, `union`, `beinleumi`, `massad`, `pagi` |
+| `userCode`, `password` | `hapoalim` |
+| `id`, `password`, `num` | `discount`, `mercantile` |
+| `id`, `card6Digits`, `password` | `isracard`, `amex` |
+| `username`, `nationalID`, `password` | `yahav` |
+
+The `accounts` mapping keys are the account or card numbers as moneyman reports them. Do a first run with only `localJson` enabled, then read them from the output files.
+
+### 5. First import, then schedule
 
 ```bash
-#!/usr/bin/env bash
-set -e
-
-echo "=== Israeli Finance Stack Setup Wizard ==="
-
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example"
-fi
-
-read -p "Enter Telegram Bot Token: " TELEGRAM_TOKEN
-read -p "Enter Allowed Telegram User IDs (comma-separated): " TELEGRAM_USERS
-read -p "Enter Claude / Gemini API Key: " LLM_KEY
-read -p "Enter Postgres Password: " DB_PASS
-
-sed -i "s|TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${TELEGRAM_TOKEN}|" .env
-sed -i "s|ALLOWED_TELEGRAM_IDS=.*|ALLOWED_TELEGRAM_IDS=${TELEGRAM_USERS}|" .env
-sed -i "s|LLM_API_KEY=.*|LLM_API_KEY=${LLM_KEY}|" .env
-sed -i "s|POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${DB_PASS}|" .env
-
-echo "Building and starting Docker services..."
-docker compose up -d --build
-
-echo "=== Installation Complete! ==="
-echo "Actual Budget UI available at: http://localhost:5006"
-
+# one-time history import: set "daysBack": 365, then
+docker compose run --rm moneyman
+# set daysBack back to 10, then add to crontab:
+0 7,19 * * * cd /opt/finance && docker compose run --rm moneyman >> /var/log/moneyman.log 2>&1
 ```
+
+The windows overlap on purpose. Actual skips anything it has already imported.
+
+### 6. Claude Code
+
+Inside the LXC, install Node 22+, Claude Code, and `npm i -g @actual-app/cli`. Create `~/.actualrc.json` (chmod 600) with `serverUrl`, `password`, `syncId`, and work from a folder whose `CLAUDE.md` says:
+
+- Use the `actual` CLI (`actual query run`, `actual transactions list`, …) with JSON output.
+- **Amounts are integer agorot:** −45000 = −₪450.00.
+- Analysis is read-only. Show any change (category, rule, split) and get confirmation before running it.
+
+### 7. Rules in Actual (one-time, in the UI)
+
+- **Card bills → transfers.** The bank account shows one monthly line per card company (e.g. ישראכרט, מקס, כאל). Make a rule that sets that line's payee to the transfer to the matching card account. Otherwise every card purchase is counted twice.
+- **Payee → category rules.** Build them up while categorizing. Actual also learns from manual categorization.
 
 ---
 
-## 6. Database Schema Specification (`init.sql`)
+## Operations
 
-```sql
-CREATE TABLE IF NOT EXISTS raw_transactions (
-    id VARCHAR(255) PRIMARY KEY,
-    account_id VARCHAR(100) NOT NULL,
-    date DATE NOT NULL,
-    amount NUMERIC(10, 2) NOT NULL,
-    charged_amount NUMERIC(10, 2),
-    payee_name VARCHAR(255) NOT NULL,
-    memo TEXT,
-    status VARCHAR(50) DEFAULT 'pending',
-    raw_payload JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS vendor_rules (
-    id SERIAL PRIMARY KEY,
-    pattern VARCHAR(255) NOT NULL,
-    category_name VARCHAR(100) NOT NULL,
-    default_split JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_raw_tx_date ON raw_transactions(date);
-CREATE INDEX idx_raw_tx_status ON raw_transactions(status);
-
-```
+- **Backups:** `vzdump` / PBS of the LXC covers everything, since `actual_data` is the only state. Actual can also export a `.zip` from the UI.
+- **Scrape failures:** no notifications. Check `/var/log/moneyman.log`, or ask Claude "when was the last import per account?"
+- **Updates:** moneyman bundles its own `@actual-app/api`. If its version doesn't match the server, imports fail with `out-of-sync-migrations`. Update both together, and pin `actual-server` to a version moneyman supports.
+- **Security:** `moneyman.json` and `~/.actualrc.json` hold all secrets and stay on the LXC only (the repo is **public**). Keep port 5006 on the LAN only.
 
 ---
 
-## 7. Shared Telegram Workflows
+## Later
 
-```
-Sequence: Transaction Triage in Group Chat
-
-Spouse A / B                   Telegram Bot Daemon              LLM API & Actual Server
-     │                                 │                                 │
-     │                                 ├──[ Scraper finds new charge ]──►│
-     │                                 │   "IKEA - ₪450.00"              │
-     │◄──[ Posts Inline Keyboard ]─────┤                                 │
-     │    "Suggested: Home & Maint"    │                                 │
-     │    [Approve] [Split] [Change]   │                                 │
-     │                                 │                                 │
-     ├───[ Taps "Split" ]─────────────►│                                 │
-     │                                 ├───[ Prompt: How to split? ]────►│
-     │                                 │                                 │
-     ├───"300 Furniture, 150 House"───►│                                 │
-     │                                 ├───[ Calls split_transaction() ]►│
-     │                                 │                                 │
-     │◄──[ Confirmation Message ]──────┼◄──[ Split recorded in Actual ]──┤
-     │    "✅ Recorded in Actual"       │                                 │
-
-```
-
----
-
-## 8. Implementation Effort Estimation
-
-| Phase | Tasks | Estimated Hours |
-| --- | --- | --- |
-| **Phase 1: Infrastructure** | Docker Compose setup, Postgres initialization, Actual Budget container deployment, Proxmox LXC testing. | 3–4 hours |
-| **Phase 2: Ingestion & Rules** | Node.js scraper service with `israeli-bank-scrapers`, Postgres persistence, deduplication logic. | 3–4 hours |
-| **Phase 3: AI Agent & Bot** | Python Telegram daemon, whitelisting, LLM function calling, Actual API wrapper integration. | 4–6 hours |
-| **Phase 4: Installer & Package** | `setup.sh` script, `.env.example` templates, initial database schema migrations, and end-to-end deployment verification. | 2–4 hours |
-| **TOTAL** | **Complete turnkey deployment package** | **12–18 hours** |
-
-```
-
-```
+1. **Telegram via Claude Code Channels.** Official plugin, no code (research preview). Pair both spouses' Telegram accounts. Requires a long-running Claude Code session in the LXC.
+2. **If Channels isn't enough** (inline Approve/Split buttons, a strict tool whitelist, pushes after each import): a small Claude Agent SDK bot, fed by moneyman's `webPost` destination.
+3. **Hebrew UI** in Actual: not available (under 1% translated). Revisit later.
