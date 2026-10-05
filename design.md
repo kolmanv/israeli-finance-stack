@@ -51,7 +51,11 @@ Pull transactions from Israeli banks and credit cards into a self-hosted budgeti
 The stack trusts the open-source community (both projects are public, reviewed, and widely used in Israel), plus:
 - **Pinned versions:** no `:latest`.
 - **Secrets only on the LXC:** `moneyman.json` and `~/.actualrc.json` are `chmod 600` and never committed (**the repo is public**).
-- **LAN only:** no port forwarding to Actual.
+- **Remote access only through Cloudflare:** Actual is published as `actual.<your-domain>` by a Cloudflare Tunnel (the Home Assistant cloudflared add-on), behind **Cloudflare Access** with Google login and a policy that allows **two specific email addresses** (never "any Google account"). The policy covers the whole hostname, API paths included. No router port forwarding. Actual's own password stays as the second layer.
+  - Cloudflare terminates TLS, so it sees budget data in transit.
+  - **Don't enable Actual's end-to-end encryption:** moneyman's Actual import can't pass an encryption password, so imports would fail.
+  - moneyman and the CLI use the internal address (`http://actual-server:5006` / `localhost`), never the tunnel.
+  - The stricter alternative is no public hostname at all, with access over a VPN (Tailscale or WireGuard).
 - **Bank alerts** (SMS/app) on logins and outgoing transfers.
 
 **Accepted risk.** Malicious code on the server (the review doesn't cover moneyman's npm dependencies) could:
