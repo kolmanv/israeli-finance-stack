@@ -13,7 +13,7 @@ Pull transactions from Israeli banks and credit cards into a self-hosted budgeti
 ```
  Proxmox LXC ───────────────────────────────────────────────────────────┐
  │  moneyman (cron 2×/day) ──import──► actual-server :5006  ◄──── browser (UI, reports)
- │       │ read-only logins                 ▲                           │
+ │       │ bank logins                      ▲                           │
  │       ▼                                  │                           │
  │  banks / card sites      Claude Code ── @actual-app/cli (Telegram later)
  └──────────────────────────────────────────────────────────────────────┘
@@ -44,7 +44,9 @@ Pull transactions from Israeli banks and credit cards into a self-hosted budgeti
 
 ## Security
 
-> **⚠️ The scraper can do anything its login can do on the website.** The code only reads (full review of moneyman v2026.09.28.1 and its bundled `israeli-bank-scrapers` 6.12.1 on 2026-10-05; both rebuilt from source byte-identical to the image), but a malicious or buggy version could transfer money. **Use read-only users (הרשאת צפייה) only.** All our banks and card companies offer them. The bank then refuses transfers, but this does **not** bound the other damage below.
+> **⚠️ The scraper can do anything its login can do on the website.** The code only reads (full review of moneyman v2026.09.28.1 and its bundled `israeli-bank-scrapers` 6.12.1 on 2026-10-05; both rebuilt from source byte-identical to the image), but a malicious or buggy version could transfer money.
+>
+> **moneyman uses full-access logins.** Our banks offer read-only access (הרשאת צפייה) only by downgrading the account owner's own user, not as a separate user, so it isn't used. The limits that remain are the bank's own: an SMS/app code for transfers to new beneficiaries, transfer limits, and alerts. Check these settings at each bank. Where a separate read-only user exists (e.g. a card company, or a future bank option), prefer it: it only changes `moneyman.json`.
 
 The stack trusts the open-source community (both projects are public, reviewed, and widely used in Israel), plus:
 - **Pinned versions:** no `:latest`.
@@ -52,7 +54,8 @@ The stack trusts the open-source community (both projects are public, reviewed, 
 - **LAN only:** no port forwarding to Actual.
 - **Bank alerts** (SMS/app) on logins and outgoing transfers.
 
-**Accepted risk.** Malicious code on the server (the review doesn't cover moneyman's npm dependencies) could still:
+**Accepted risk.** Malicious code on the server (the review doesn't cover moneyman's npm dependencies) could:
+- use the full-access logins for anything the bank allows without an extra code (e.g. transfers within limits to existing beneficiaries, changing settings);
 - leak the logins (national ID numbers, card digits: phishing and identity fraud) and all transaction history;
 - read other secrets in the LXC (the Actual password, Claude Code's credentials);
 - attack other machines on the home network.
@@ -109,7 +112,7 @@ volumes: { actual_data: {} }
 2. Create **one on-budget account per bank account and card**, including both spouses' cards (a card left out leaves its bill counted as an expense).
 3. Note the **Sync ID** (Settings → Advanced) and the account IDs (`actual accounts list`, after step 6).
 
-### 4. `/opt/finance/moneyman.json` (read-only users)
+### 4. `/opt/finance/moneyman.json` (bank logins)
 
 ```jsonc
 {
