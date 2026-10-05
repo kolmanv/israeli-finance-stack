@@ -44,7 +44,7 @@ Pull transactions from Israeli banks and credit cards into a self-hosted budgeti
 
 ## Security
 
-> **⚠️ The scraper can do anything its login can do on the website.** The code only reads (checked by a scan of the `israeli-bank-scrapers` source, Oct 2026), but a malicious or buggy version could transfer money. **Use read-only users (הרשאת צפייה) only.** All our banks and card companies offer them. The bank then refuses transfers, but this does **not** bound the other damage below.
+> **⚠️ The scraper can do anything its login can do on the website.** The code only reads (full review of moneyman v2026.09.28.1 and its bundled `israeli-bank-scrapers` 6.12.1 on 2026-10-05; both rebuilt from source byte-identical to the image), but a malicious or buggy version could transfer money. **Use read-only users (הרשאת צפייה) only.** All our banks and card companies offer them. The bank then refuses transfers, but this does **not** bound the other damage below.
 
 The stack trusts the open-source community (both projects are public, reviewed, and widely used in Israel), plus:
 - **Pinned versions:** no `:latest`.
@@ -62,7 +62,7 @@ The safeguards make this unlikely, not impossible.
 > **⚠️ No network firewall: the code check before every upgrade is the main safeguard.** Nothing restricts where the LXC sends data. **Never roll out a new moneyman or `israeli-bank-scrapers` version without checking its code changes** ([Updates](#operations)).
 >
 > Future hardening, if wanted:
-> - **moneyman domain firewall** (`options.security`: `blockByDefault` + per-scraper `ALLOW` rules). Cheap, but it runs inside moneyman, so it stops a malicious dependency, not a malicious moneyman.
+> - **moneyman domain firewall** (`options.security`: `blockByDefault` + per-scraper `ALLOW` rules; only active with `options.scraping.domainTracking: true`). Cheap, but it runs inside moneyman, so it stops a malicious dependency, not a malicious moneyman.
 > - **Proxmox outgoing-traffic firewall** on the LXC (banks, registries, npm, Anthropic only; no LAN access). Nothing inside the LXC can bypass it.
 
 Only moneyman touches the banks. Everything else reaches only Actual's data.
@@ -90,7 +90,9 @@ services:
   moneyman:
     image: ghcr.io/daniel-hauser/moneyman:v2026.09.28.1   # ≥ this (stable import ids)
     profiles: ["job"]                          # not started by `up`; run by cron
-    environment: { MONEYMAN_CONFIG_PATH: /config/moneyman.json }
+    environment:
+      MONEYMAN_CONFIG_PATH: /config/moneyman.json
+      MONEYMAN_UNSAFE_STDOUT: "true"             # else logs are written in the container and deleted
     volumes:
       - ./moneyman.json:/config/moneyman.json:ro   # chmod 600, never committed
       - ./output:/app/output                       # raw scraper JSON
@@ -125,7 +127,11 @@ volumes: { actual_data: {} }
     },
     "localJson": { "enabled": true, "path": "/app/output" }
   },
-  "options": { "scraping": { "daysBack": 30 } }
+  "options": {
+    // transactionHashType: dedup by the bank's transaction id. Set before the first Actual import, never change
+    "scraping": { "daysBack": 30, "transactionHashType": "moneyman" },
+    "logging": { "getIpInfoUrl": false }   // skip the ipinfo.io public-IP lookup
+  }
 }
 ```
 
