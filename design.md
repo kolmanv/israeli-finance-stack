@@ -211,4 +211,5 @@ The uncategorized pile shrinks each week.
 
 1. **Telegram via Claude Code Channels.** Official plugin, no code (research preview). Pair both spouses' accounts. Needs a long-running Claude Code session in the LXC.
 2. **If Channels isn't enough** (Approve/Split buttons, a strict tool whitelist, pushes after each import): a small Claude Agent SDK bot fed by moneyman's `webPost` destination.
-3. **Hebrew UI** in Actual: under 1% translated. Revisit later.
+3. **Hebrew UI** in Actual: under 1% translated. Contributing the translation (Weblate) and RTL fixes upstream would help every Hebrew-speaking user.
+4. **A restricted assistant profile for Telegram:** read-only `actual` CLI access that can only propose changes; edits stay with the full (dev) profile and need confirmation.
