@@ -1,0 +1,24 @@
+{
+  "moneymanOutputDir": "/opt/finance/output",
+  "lookbackDays": 60,
+  "amountTolerance": 1,
+  "dayTolerance": 3,
+  "maxCombo": 4,
+  "bills": [
+    {
+      "bankAccount": "My Bank",
+      "bankCompanyId": "mizrahi",
+      "payeePattern": "ויזה",
+      "cardCompanyId": "visaCal",
+      "referenceEndsWithCard": true,
+      "cards": { "1234": "Cal 1234", "5678": "Cal 5678" }
+    },
+    {
+      "bankAccount": "My Bank",
+      "bankCompanyId": "mizrahi",
+      "payeePattern": "מסטרקרד|ישראכרט",
+      "cardCompanyId": "isracard",
+      "cards": { "9012": "Isracard 9012" }
+    }
+  ]
+}

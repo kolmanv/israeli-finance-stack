@@ -1,0 +1,12 @@
+{
+  "name": "card-bills",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Turn credit-card bill lines in bank accounts into Actual transfers to the right card account",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "@actual-app/api": "26.9.0"
+  }
+}
