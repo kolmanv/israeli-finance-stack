@@ -4,7 +4,10 @@ Israeli banks show a credit card's monthly bill as one line per card, often with
 
 1. **By reference number**, when the bank embeds the card number in it (Mizrahi's Cal bills end with the card's last 4 digits).
 2. **By sum**, comparing the bill amount with each card's charges for that billing date, taken from moneyman's JSON output (`localJson` storage must be enabled).
-3. **Only card**: when a bank/company pair has a single card, every bill line goes to it.
+3. **By single charge**, when a bank line equals one card charge (e.g. ATM withdrawals on a debit card, charged one by one).
+4. **Only card**: when a bank/company pair has a single card, every bill line goes to it.
+
+Actual creates transfers asynchronously, so the tool pauses between updates and verifies each link, retrying a few times; anything still unlinked is reported as `FAILED` and the exit code is 1.
 
 A matched line becomes a transfer to the card account (Actual creates the payment on the card side) and gets a note: `card 1234 bill 2026-09 #card-bill`. Lines already converted are skipped, so re-running is safe. Lines matching several cards' combined total, or nothing, are reported and left for manual review.
 
