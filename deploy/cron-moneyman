@@ -1,0 +1,2 @@
+# moneyman import + card-bill linking, twice a day
+0 7,19 * * * root /opt/finance/run.sh

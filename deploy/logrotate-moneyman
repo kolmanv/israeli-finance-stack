@@ -1,0 +1,15 @@
+/var/log/moneyman.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+}
+/var/log/moneyman.status {
+    monthly
+    rotate 12
+    missingok
+    notifempty
+}

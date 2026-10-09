@@ -1,0 +1,3 @@
+# /etc/cron.d/finance-reminders: one-time "is merchant X still charging?" checks.
+# Fields: <run-year> <label> <imported_payee substring> <only charges after YYYY-MM-DD>
+0 9 17 11 * root /root/finance/reminders/check-merchant.sh 2026 "Streaming cancellation" "Netflix" 2026-11-16
