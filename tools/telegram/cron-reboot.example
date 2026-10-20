@@ -1,5 +1,5 @@
-# Start the Telegram bot session (tmux "finance") after boot; start-bot.sh does nothing if it is already running.
+# /etc/cron.d/finance-bot: start the Telegram bot session (tmux "finance") after boot, as the bot user.
+# start-bot.sh does nothing if it is already running, and sets its own PATH.
 SHELL=/bin/bash
-HOME=/root
-PATH=/root/.local/bin:/root/.bun/bin:/usr/local/bin:/usr/bin:/bin
-@reboot root sleep 60 && /root/finance/bot/start-bot.sh >> /var/log/finance-bot.log 2>&1
+HOME=/home/finbot
+@reboot finbot sleep 60 && /home/finbot/finance/bot/start-bot.sh >> /var/log/finance-bot.log 2>&1

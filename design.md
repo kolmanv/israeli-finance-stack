@@ -166,6 +166,24 @@ Install Node 22+ (Debian 13 ships 20: use the official Node LTS tarball), Claude
 - **Amounts are integer agorot:** −45000 = −₪450.00.
 - Analysis is read-only. Show any change (category, rule, split, payee merge) and get confirmation first.
 
+### 7. Telegram bot: its own user, never root
+
+The Telegram session runs unattended, reads documents people send it, and can reach the internet. If it runs as root, one crafted document can make it read `moneyman.json` (the bank logins) and send it out. `permissions.deny` rules and a `CLAUDE.md` line only stop honest mistakes, not that. Let Linux enforce it:
+
+```bash
+useradd -m -s /bin/bash finbot            # no sudo, not in the docker group (docker = root)
+# install Claude Code and Bun as finbot (the Telegram plugin is a Bun program), log in,
+# copy ~/.actualrc.json (chmod 600) and the folder with CLAUDE.md to /home/finbot/finance
+chmod 700 /opt/finance                    # finbot can't read moneyman.json or run scrapes
+chgrp finbot /var/log/moneyman.status && chmod 640 /var/log/moneyman.status   # import health only
+```
+
+- `tools/telegram/start-bot.sh` starts the session (it sets PATH and turns off claude.ai account connectors such as Drive), `cron-reboot.example` starts it at boot, both as `finbot`.
+- Every cron job that runs a script the bot can edit must run as `finbot`, never as root.
+- Check: `su - finbot -c 'cat /opt/finance/moneyman.json'` must say *Permission denied*.
+- Lock the Telegram plugin to an allowlist of your own accounts (`/telegram:access`).
+- Reminders the bot schedules inside its session (`CronCreate`) live in memory: a restart loses them and recurring ones expire after 7 days. Anything that must survive goes in cron.
+
 ---
 
 ## Categorization
@@ -209,7 +227,7 @@ The uncategorized pile shrinks each week.
 
 ## Later
 
-1. **Telegram via Claude Code Channels.** Official plugin, no code (research preview). Pair both spouses' accounts. Needs a long-running Claude Code session in the LXC.
+1. ~~**Telegram via Claude Code Channels.**~~ Done: see step 7. Pair both spouses' accounts.
 2. **If Channels isn't enough** (Approve/Split buttons, a strict tool whitelist, pushes after each import): a small Claude Agent SDK bot fed by moneyman's `webPost` destination.
 3. **Hebrew UI** in Actual: under 1% translated. Contributing the translation (Weblate) and RTL fixes upstream would help every Hebrew-speaking user.
 4. **A restricted assistant profile for Telegram:** read-only `actual` CLI access that can only propose changes; edits stay with the full (dev) profile and need confirmation.

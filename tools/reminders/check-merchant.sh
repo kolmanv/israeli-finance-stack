@@ -6,7 +6,7 @@
 set -u
 YEAR="$1"; LABEL="$2"; MATCH="$3"; SINCE="$4"
 [ "$(date +%Y)" = "$YEAR" ] || exit 0
-cd /root/finance || exit 1
+cd "$HOME/finance" || exit 1
 JSON=$(/usr/local/bin/actual --refresh query run --table transactions \
   --select "date,amount,account.name,imported_payee" \
   --filter "{\"imported_payee\":{\"\$like\":\"%${MATCH}%\"},\"date\":{\"\$gt\":\"${SINCE}\"}}" 2>&1)
@@ -19,4 +19,4 @@ if not rows: print(f"TODO check {label}: no charge after {since}, looks cancelle
 else: print(f"TODO check {label}: STILL CHARGING after {since}: " + "; ".join("%s %.2f ILS %s" % (r["date"], -r["amount"]/100, r["account.name"]) for r in rows))
 ' "$LABEL" "$SINCE")
 echo "$(date -Is) $MSG" >> /var/log/finance-reminders.log
-[ "${DRY_RUN:-}" = 1 ] || echo "- **$(date +%F) reminder:** $MSG" >> /root/finance/HANDOVER.md
+[ "${DRY_RUN:-}" = 1 ] || echo "- **$(date +%F) reminder:** $MSG" >> "$HOME/finance/HANDOVER.md"
