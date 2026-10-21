@@ -1,0 +1,5 @@
+#!/bin/bash
+# Type a message into the finance bot's Claude session (tmux "finance"), as if from the terminal.
+# Usage (as finbot): finance-bot-say "<text>". Exit 1 if the bot session isn't running.
+tmux has-session -t finance 2>/dev/null || { echo "finance bot session not running" >&2; exit 1; }
+tmux send-keys -t finance -l "$1" && sleep 1 && tmux send-keys -t finance Enter

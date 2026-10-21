@@ -182,7 +182,22 @@ chgrp finbot /var/log/moneyman.status && chmod 640 /var/log/moneyman.status   # 
 - Every cron job that runs a script the bot can edit must run as `finbot`, never as root.
 - Check: `su - finbot -c 'cat /opt/finance/moneyman.json'` must say *Permission denied*.
 - Lock the Telegram plugin to an allowlist of your own accounts (`/telegram:access`).
-- Reminders the bot schedules inside its session (`CronCreate`) live in memory: a restart loses them and recurring ones expire after 7 days. Anything that must survive goes in cron.
+- Reminders the bot schedules inside its session (`CronCreate`) live in memory: a restart loses them and recurring ones expire after 7 days. Anything that must survive goes in cron (step 8).
+- `start-bot.sh` uses `--continue`, so a restart resumes the same conversation instead of starting a new one.
+
+### 8. Durable schedule, import health and a watchdog
+
+Everything the bot must do on time is plain cron, run as `finbot`, through root-owned scripts in `tools/schedule/` (installed to `/usr/local/bin`, so the bot can run but not edit them). `cron.example` is the whole schedule:
+
+| When | What |
+|---|---|
+| After each import | `finance-import-summary` (root, called from `run.sh`) reads the root-only moneyman log and writes `/var/lib/finance-health/imports.json` (`root:finbot 640`): per bank `last_success`, `last_failure`, `last_error`, `consecutive_failures`. No transactions, no logins |
+| 08:07 | `finance-bot-say` types `[daily 08:07] …` into the session: the bot sends its digest with import health, then writes the date to `~/finance/state/digest-sent` |
+| Every 5 min | `finance-bot-due` feeds due lines of `~/finance/reminders/scheduled.tsv` (`YYYY-MM-DD HH:MM<TAB>prompt`) to the bot |
+| 09:30 | `finance-bot-watchdog`: no digest today → one Telegram message straight from the Bot API to `CHAT_ID` (`/etc/finance-watchdog.conf`), without Claude, saying whether the session is down or just silent |
+| Sunday 04:00 | Restart, so Claude updates apply (`--continue` keeps the conversation) |
+
+Tell the bot in its `CLAUDE.md`: don't use `CronCreate` for anything that must survive; add one-off reminders to `scheduled.tsv`; report a bank only after 48 hours without a successful import (a single failed run is normal); `LOGIN_FAILED`/`CHANGE_PASSWORD` need the user, `GENERIC` timeouts usually fix themselves.
 
 ---
 
@@ -216,7 +231,7 @@ The uncategorized pile shrinks each week.
 ## Operations
 
 - **Backups:** `vzdump` / PBS of the LXC covers everything (`actual_data` is the only state). Actual can also export a `.zip`.
-- **Failure check (weekly):** moneyman **always exits 0**, even when a scraper fails, so `moneyman.status` only proves the run completed. Check `grep -a 'error:' /var/log/moneyman.log` (needs `DEBUG=moneyman:*`), or ask Claude "last imported transaction per account?" An account silent for days means its scraper broke: update moneyman once a fix ships, and `daysBack` backfills. Leumi is flaky (page timeouts): a single failed run is normal.
+- **Failure check:** moneyman **always exits 0**, even when a scraper fails, so `moneyman.status` only proves the run completed. With step 8 the bot reports failing banks in its daily digest. By hand: check `grep -a 'error:' /var/log/moneyman.log` (needs `DEBUG=moneyman:*`), or ask Claude "last imported transaction per account?" An account silent for days means its scraper broke: update moneyman once a fix ships, and `daysBack` backfills. Leumi is flaky (page timeouts): a single failed run is normal.
 - **Logs:** `/var/log/moneyman.log` (about 25k lines per full run with debug on), rotated daily by `/etc/logrotate.d/moneyman`, 14 days kept. They contain transaction details but no passwords; root-only.
 - **Updates:**
   - **Check the code first (moneyman and `israeli-bank-scrapers`).** Have Claude Code review the diff from the current tag to the new one, in moneyman and in the scraper version it bundles (`package-lock.json`). Upgrade only if the changes touch nothing but login, navigation and reading: no new form submissions, payment or transfer endpoints, or unexpected domains.

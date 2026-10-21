@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Summarise moneyman runs per bank for the finance bot (runs as root after each import).
+
+Reads /var/log/moneyman.log (root-only, has transaction details) and writes
+/var/lib/finance-health/imports.json (root:finbot 640) with only: per bank the
+last success, last failure, error type + short message, consecutive failures.
+--seed reads the rotated logs too (oldest first) to build history once.
+"""
+import glob, gzip, json, os, re, sys
+
+LOG = "/var/log/moneyman.log"
+OUT = "/var/lib/finance-health/imports.json"
+START = re.compile(r"(\d{4}-\d\d-\d\dT[\d:.]+Z) moneyman:main About to start")
+BEGIN = re.compile(r"\[(\w+)\] START_SCRAPING")
+FAIL = re.compile(r"❌ \[(\w+)\] (\w+)")
+TOTAL = re.compile(r"(\d+) transactions scraped from (\d+) accounts")
+
+
+def read(path):
+    op = gzip.open if path.endswith(".gz") else open
+    with op(path, "rt", errors="replace") as f:
+        return f.read().splitlines()
+
+
+def runs(lines):
+    """Yield (timestamp, started, failures, total) per run block."""
+    block, ts = None, None
+    for line in lines + [None]:
+        m = START.search(line) if line is not None else None
+        if (m or line is None) and block is not None:
+            started = {b.group(1) for l in block for b in [BEGIN.search(l)] if b}
+            fails = {}
+            for i, l in enumerate(block):
+                f = FAIL.search(l)
+                if f:
+                    nxt = block[i + 1] if i + 1 < len(block) else ""
+                    msg = re.sub(r"<[^>]+>", "", nxt).strip()[:150]
+                    fails[f.group(1)] = f"{f.group(2)}: {msg}" if msg else f.group(2)
+            tot = next((t for l in block for t in [TOTAL.search(l)] if t), None)
+            total = {"transactions": int(tot.group(1)), "accounts": int(tot.group(2))} if tot else None
+            yield ts, started, fails, total
+        if m:
+            block, ts = [], m.group(1)
+        elif block is not None and line is not None:
+            block.append(line)
+
+
+def main():
+    state = {"banks": {}}
+    if os.path.exists(OUT) and "--seed" not in sys.argv:
+        state = json.load(open(OUT))
+    files = [LOG]
+    if "--seed" in sys.argv:
+        rot = sorted(glob.glob(LOG + ".*"), key=lambda p: int(re.search(r"\.(\d+)", p).group(1)), reverse=True)
+        files = rot + [LOG]
+    last = None
+    for path in files:
+        for ts, started, fails, total in runs(read(path)):
+            if state.get("last_run", {}).get("time", "") >= ts:
+                continue  # already counted
+            for bank in started | set(fails):
+                b = state["banks"].setdefault(bank, {"consecutive_failures": 0})
+                if bank in fails:
+                    b.update(last_failure=ts, last_error=fails[bank])
+                    b["consecutive_failures"] += 1
+                else:
+                    b.update(last_success=ts, consecutive_failures=0)
+            # a run that never finished (no total line) is itself worth flagging
+            last = {"time": ts, "complete": total is not None, "failed": sorted(fails), **(total or {})}
+            state["last_run"] = last
+    if last is None and "last_run" not in state:
+        state["last_run"] = {"time": None, "complete": False, "failed": []}
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    tmp = OUT + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, ensure_ascii=False, indent=1)
+    os.chmod(tmp, 0o640)
+    os.chown(tmp, 0, __import__("grp").getgrnam("finbot").gr_gid)
+    os.replace(tmp, OUT)
+
+
+main()

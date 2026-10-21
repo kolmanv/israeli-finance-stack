@@ -1,0 +1,3 @@
+# /etc/finance-watchdog.conf (root-owned, 644): the Telegram chat the watchdog alerts.
+# Your own user id from the bot's access.json allowlist (a DM chat id equals the user id).
+CHAT_ID=<your Telegram user id>
