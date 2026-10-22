@@ -1,0 +1,2 @@
+# /etc/cron.d/finance-refresh: on-demand imports requested by the finance bot (tools/refresh)
+* * * * * root /usr/local/sbin/finance-refresh tick

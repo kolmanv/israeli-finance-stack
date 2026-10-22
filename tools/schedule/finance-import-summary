@@ -13,7 +13,7 @@ OUT = "/var/lib/finance-health/imports.json"
 START = re.compile(r"(\d{4}-\d\d-\d\dT[\d:.]+Z) moneyman:main About to start")
 BEGIN = re.compile(r"\[(\w+)\] START_SCRAPING")
 FAIL = re.compile(r"❌ \[(\w+)\] (\w+)")
-TOTAL = re.compile(r"(\d+) transactions scraped from (\d+) accounts")
+TOTAL = re.compile(r"(\d+) transactions? scraped from (\d+) accounts?")
 
 
 def read(path):

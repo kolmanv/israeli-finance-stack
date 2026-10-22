@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""On-demand imports for the finance bot (runs as root; the bot only asks).
+
+The bot runs `finance-refresh-request <bank>...`, which drops a file in REQUESTS. Every minute cron runs
+`finance-refresh tick`: it collects the requests and, as soon as the caps allow, runs /opt/finance/run.sh for
+just those banks. A request is never refused, only delayed:
+  - a bank is scraped at most once per GAP_MINUTES (scheduled runs count too),
+  - at most EXTRA_PER_DAY on-demand runs per day; past that, requests wait for the next day.
+When the import finishes, the bot gets "[refresh done ...]" typed into its session (finance-bot-say).
+STATUS (readable by the bot) shows what is pending and when it will run.
+
+Also called by run.sh: `started [bank...]` / `finished [bank...]` around every import, and
+`config <bank>...` to print the moneyman config limited to those banks (stdout goes into the environment only).
+Settings: /etc/default/finance-refresh (GAP_MINUTES=30, EXTRA_PER_DAY=10).
+"""
+import fcntl, json, os, re, subprocess, sys, time
+from datetime import datetime
+
+D = "/var/lib/finance-refresh"
+REQUESTS, STATE, STATUS = f"{D}/requests", f"{D}/state.json", f"{D}/status.json"
+CONFIG, IMPORTS, LOG = "/opt/finance/moneyman.json", "/var/lib/finance-health/imports.json", "/var/log/finance-refresh.log"
+BOT = "finbot"
+conf = {"GAP_MINUTES": "30", "EXTRA_PER_DAY": "10"}
+if os.path.exists("/etc/default/finance-refresh"):
+    conf.update(re.findall(r"^\s*(\w+)\s*=\s*\"?([^\"\n]*)\"?", open("/etc/default/finance-refresh").read(), re.M))
+GAP, EXTRA_PER_DAY = int(conf["GAP_MINUTES"]) * 60, int(conf["EXTRA_PER_DAY"])
+
+
+def log(msg):
+    with open(LOG, "a") as f:
+        f.write(f"{datetime.now().isoformat(timespec='seconds')} {msg}\n")
+
+
+def jsonc(text):
+    """moneyman.json allows // and /* */ comments and trailing commas; strip them outside strings."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1]); i = j + 1
+        elif text.startswith("//", i):
+            i = text.find("\n", i) if "\n" in text[i:] else n
+        elif text.startswith("/*", i):
+            i = text.find("*/", i) + 2
+        else:
+            out.append(c); i += 1
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
+
+
+def banks():
+    return sorted({a["companyId"] for a in jsonc(open(CONFIG).read())["accounts"]})
+
+
+def load():
+    s = json.load(open(STATE)) if os.path.exists(STATE) else {}
+    return {"pending": {}, "last_start": {}, "extra_runs": [], "running": None, **s}
+
+
+def save(s):
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f, indent=1)
+    os.replace(tmp, STATE)
+    status(s)
+
+
+def today_extra(s):
+    day = datetime.now().strftime("%F")
+    return [t for t in s["extra_runs"] if datetime.fromtimestamp(t).strftime("%F") == day]
+
+
+def status(s):
+    now, full = time.time(), len(today_extra(s)) >= EXTRA_PER_DAY
+    def when(b):
+        t = max(now, s["last_start"].get(b, 0) + GAP)
+        if full:
+            t = max(t, datetime.now().replace(hour=0, minute=0, second=0).timestamp() + 86400)
+        return datetime.fromtimestamp(t).strftime("%F %H:%M")
+    data = {"pending": {b: {"requested": datetime.fromtimestamp(t).strftime("%F %H:%M"), "runs_at": when(b)}
+                        for b, t in s["pending"].items()},
+            "running": s["running"], "extra_runs_today": len(today_extra(s)), "extra_per_day": EXTRA_PER_DAY,
+            "gap_minutes": GAP // 60,
+            "last_start": {b: datetime.fromtimestamp(t).strftime("%F %H:%M") for b, t in s["last_start"].items()}}
+    tmp = STATUS + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=1)
+    os.chmod(tmp, 0o640)
+    os.chown(tmp, 0, __import__("grp").getgrnam(BOT).gr_gid)
+    os.replace(tmp, STATUS)
+
+
+def collect(s, known):
+    """Turn request files into pending banks. Anything unknown is logged and dropped."""
+    alias = {b.lower(): b for b in known} | {"cal": "visaCal"}
+    for name in os.listdir(REQUESTS):
+        path = f"{REQUESTS}/{name}"
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            words = os.read(fd, 1024).decode(errors="replace").replace(",", " ").split()
+            os.close(fd)
+        except OSError:
+            words = []
+        os.unlink(path)
+        wanted = set(known) if "all" in [w.lower() for w in words] else {alias[w.lower()] for w in words
+                                                                          if alias.get(w.lower()) in known}
+        log(f"request {words} -> {sorted(wanted) or 'nothing known'}")
+        for b in wanted:
+            s["pending"].setdefault(b, time.time())
+
+
+def tick():
+    lock = open("/run/finance-refresh.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return  # a refresh import is still running
+    s, known = load(), banks()
+    collect(s, known)
+    now = time.time()
+    due = sorted(b for b in s["pending"] if now - s["last_start"].get(b, 0) >= GAP)
+    busy = s["running"] and now - s["running"]["t"] < 3 * 3600  # an import that died without finishing
+    if due and len(today_extra(s)) < EXTRA_PER_DAY and not busy:
+        s["extra_runs"] = today_extra(s) + [now]
+        save(s)
+        log(f"run {due}")
+        subprocess.run(["/opt/finance/run.sh", *due])
+    else:
+        save(s)
+
+
+def started(ids):
+    s = load()
+    ids = ids or banks()
+    s["running"] = {"banks": ids, "since": datetime.now().strftime("%F %H:%M"), "t": time.time()}
+    for b in ids:
+        s["last_start"][b] = time.time()
+    save(s)
+
+
+def finished(ids):
+    """Clear the requests this import covered and tell the bot how it went."""
+    s = load()
+    run, s["running"] = s["running"] or {"t": time.time()}, None
+    done = [b for b, t in s["pending"].items() if b in (ids or banks()) and t <= run["t"]]
+    for b in done:
+        del s["pending"][b]
+    save(s)
+    if not done:
+        return
+    try:
+        imp = json.load(open(IMPORTS))
+        last = imp.get("last_run", {})
+        failed = [b for b in done if b in last.get("failed", [])]
+        result = f"{last.get('transactions', '?')} transactions" + (f"; failed: {', '.join(failed)}" if failed else "")
+        result += "; details per bank in imports.json"
+    except Exception as e:
+        result = f"no import summary ({e})"
+    msg = f"[refresh done {datetime.now().strftime('%H:%M')}] {', '.join(done)}: {result}"
+    log(msg)
+    subprocess.run(["runuser", "-u", BOT, "--", "env", f"HOME=/home/{BOT}", "PATH=/usr/local/bin:/usr/bin:/bin",
+                    "finance-bot-say", msg])
+
+
+def config(ids):
+    c = jsonc(open(CONFIG).read())
+    c.setdefault("options", {}).setdefault("scraping", {})["accountsToScrape"] = ids
+    print(json.dumps(c))
+
+
+if __name__ == "__main__":
+    cmd, args = (sys.argv[1:2] or [""])[0], sys.argv[2:]
+    if cmd == "tick":
+        tick()
+    elif cmd == "started":
+        started(args)
+    elif cmd == "finished":
+        finished(args)
+    elif cmd == "config" and args:
+        config(args)
+    else:
+        sys.exit(__doc__)
