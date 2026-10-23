@@ -1,0 +1,22 @@
+# /etc/nginx/conf.d/wa-proxy.conf (root, mode 600): local proxy to a wa-gateway behind Cloudflare Access.
+# It adds the service token to every request, so the bot user reaches WhatsApp without ever seeing the token.
+server {
+    listen 127.0.0.1:8770;
+    location = /mcp {
+        proxy_pass https://wa.example.com/mcp;
+        proxy_ssl_server_name on;
+        proxy_ssl_name wa.example.com;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_set_header Host wa.example.com;
+        proxy_set_header User-Agent finance-wa-proxy;  # Cloudflare refuses some default agents
+        proxy_set_header CF-Access-Client-Id "<id>.access";
+        proxy_set_header CF-Access-Client-Secret "<secret>";
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+        client_max_body_size 1m;
+    }
+    location / { return 404; }
+}
