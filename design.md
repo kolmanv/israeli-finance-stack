@@ -1,4 +1,4 @@
-# Israeli Finance Stack
+# kaspi: Israeli finance stack
 
 Pull transactions from Israeli banks and credit cards into a self-hosted budgeting app, and analyze them by talking to Claude.
 
