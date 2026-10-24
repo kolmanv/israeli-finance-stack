@@ -1,10 +1,10 @@
-# /etc/cron.d/finance-schedule: the finance bot's durable schedule (session crons are lost on restart).
-# Scripts live in /usr/local/bin (root-owned, the bot can't edit them) and run as finbot.
+# /etc/cron.d/kaspi-schedule: the kaspi bot's durable schedule (session crons are lost on restart).
+# Scripts live in /usr/local/bin (root-owned, the bot can't edit them) and run as kaspi.
 SHELL=/bin/bash
-HOME=/home/finbot
-PATH=/home/finbot/.local/bin:/home/finbot/.bun/bin:/usr/local/bin:/usr/bin:/bin
-7 8 * * *    finbot finance-bot-say "[daily 08:07] Run the daily morning digest as described in HANDOVER.md, and include import health from /var/lib/finance-health/imports.json (see CLAUDE.md, Scheduling). After sending it, write today's date to ~/finance/state/digest-sent." >> /var/log/finance-bot.log 2>&1
-*/5 * * * *  finbot finance-bot-due >> /var/log/finance-bot.log 2>&1
-30 9 * * *   finbot finance-bot-watchdog >> /var/log/finance-bot.log 2>&1
+HOME=/home/kaspi
+PATH=/home/kaspi/.local/bin:/home/kaspi/.bun/bin:/usr/local/bin:/usr/bin:/bin
+7 8 * * *    kaspi kaspi-bot-say "[daily 08:07] Run the daily morning digest as described in HANDOVER.md, and include import health from /var/lib/kaspi-health/imports.json (see CLAUDE.md, Scheduling). After sending it, write today's date to ~/kaspi/state/digest-sent." >> /var/log/kaspi-bot.log 2>&1
+*/5 * * * *  kaspi kaspi-bot-due >> /var/log/kaspi-bot.log 2>&1
+30 9 * * *   kaspi kaspi-bot-watchdog >> /var/log/kaspi-bot.log 2>&1
 # Weekly fresh start (Sun 04:00): applies Claude updates; --continue in start-bot.sh keeps the conversation.
-0 4 * * 0    finbot tmux kill-session -t finance; sleep 5; /home/finbot/finance/bot/start-bot.sh >> /var/log/finance-bot.log 2>&1
+0 4 * * 0    kaspi tmux kill-session -t kaspi; sleep 5; /home/kaspi/kaspi/bot/start-bot.sh >> /var/log/kaspi-bot.log 2>&1

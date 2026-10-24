@@ -1,2 +1,2 @@
-# /etc/cron.d/finance-refresh: on-demand imports requested by the finance bot (tools/refresh)
-* * * * * root /usr/local/sbin/finance-refresh tick
+# /etc/cron.d/kaspi-refresh: on-demand imports requested by the kaspi bot (tools/refresh)
+* * * * * root /usr/local/sbin/kaspi-refresh tick

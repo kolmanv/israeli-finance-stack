@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Summarise moneyman runs per bank for the finance bot (runs as root after each import).
+"""Summarise moneyman runs per bank for the kaspi bot (runs as root after each import).
 
 Reads /var/log/moneyman.log (root-only, has transaction details) and writes
-/var/lib/finance-health/imports.json (root:finbot 640) with only: per bank the
+/var/lib/kaspi-health/imports.json (root:kaspi 640) with only: per bank the
 last success, last failure, error type + short message, consecutive failures.
 --seed reads the rotated logs too (oldest first) to build history once.
 """
 import glob, gzip, json, os, re, sys
 
 LOG = "/var/log/moneyman.log"
-OUT = "/var/lib/finance-health/imports.json"
+OUT = "/var/lib/kaspi-health/imports.json"
 START = re.compile(r"(\d{4}-\d\d-\d\dT[\d:.]+Z) moneyman:main About to start")
 BEGIN = re.compile(r"\[(\w+)\] START_SCRAPING")
 FAIL = re.compile(r"❌ \[(\w+)\] (\w+)")
@@ -75,7 +75,7 @@ def main():
     with open(tmp, "w") as f:
         json.dump(state, f, ensure_ascii=False, indent=1)
     os.chmod(tmp, 0o640)
-    os.chown(tmp, 0, __import__("grp").getgrnam("finbot").gr_gid)
+    os.chown(tmp, 0, __import__("grp").getgrnam("kaspi").gr_gid)
     os.replace(tmp, OUT)
 
 

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Type a message into the kaspi bot's Claude session (tmux "kaspi"), as if from the terminal.
+# Usage (as kaspi): kaspi-bot-say "<text>". Exit 1 if the bot session isn't running.
+tmux has-session -t kaspi 2>/dev/null || { echo "kaspi bot session not running" >&2; exit 1; }
+tmux send-keys -t kaspi -l "$1" && sleep 1 && tmux send-keys -t kaspi Enter

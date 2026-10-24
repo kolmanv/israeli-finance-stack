@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""On-demand imports for the finance bot (runs as root; the bot only asks).
+"""On-demand imports for the kaspi bot (runs as root; the bot only asks).
 
-The bot runs `finance-refresh-request <bank>...`, which drops a file in REQUESTS. Every minute cron runs
-`finance-refresh tick`: it collects the requests and, as soon as the caps allow, runs /opt/finance/run.sh for
+The bot runs `kaspi-refresh-request <bank>...`, which drops a file in REQUESTS. Every minute cron runs
+`kaspi-refresh tick`: it collects the requests and, as soon as the caps allow, runs /opt/kaspi/run.sh for
 just those banks. A request is never refused, only delayed:
   - a bank is scraped at most once per GAP_MINUTES (scheduled runs count too),
   - at most EXTRA_PER_DAY on-demand runs per day; past that, requests wait for the next day.
-When the import finishes, the bot gets "[refresh done ...]" typed into its session (finance-bot-say).
+When the import finishes, the bot gets "[refresh done ...]" typed into its session (kaspi-bot-say).
 STATUS (readable by the bot) shows what is pending and when it will run.
 
 Also called by run.sh: `started [bank...]` / `finished [bank...]` around every import, and
 `config <bank>...` to print the moneyman config limited to those banks (stdout goes into the environment only).
-Settings: /etc/default/finance-refresh (GAP_MINUTES=30, EXTRA_PER_DAY=10).
+Settings: /etc/default/kaspi-refresh (GAP_MINUTES=30, EXTRA_PER_DAY=10).
 """
 import fcntl, json, os, re, subprocess, sys, time
 from datetime import datetime
 
-D = "/var/lib/finance-refresh"
+D = "/var/lib/kaspi-refresh"
 REQUESTS, STATE, STATUS = f"{D}/requests", f"{D}/state.json", f"{D}/status.json"
-CONFIG, IMPORTS, LOG = "/opt/finance/moneyman.json", "/var/lib/finance-health/imports.json", "/var/log/finance-refresh.log"
-BOT = "finbot"
+CONFIG, IMPORTS, LOG = "/opt/kaspi/moneyman.json", "/var/lib/kaspi-health/imports.json", "/var/log/kaspi-refresh.log"
+BOT = "kaspi"
 conf = {"GAP_MINUTES": "30", "EXTRA_PER_DAY": "10"}
-if os.path.exists("/etc/default/finance-refresh"):
-    conf.update(re.findall(r"^\s*(\w+)\s*=\s*\"?([^\"\n]*)\"?", open("/etc/default/finance-refresh").read(), re.M))
+if os.path.exists("/etc/default/kaspi-refresh"):
+    conf.update(re.findall(r"^\s*(\w+)\s*=\s*\"?([^\"\n]*)\"?", open("/etc/default/kaspi-refresh").read(), re.M))
 GAP, EXTRA_PER_DAY = int(conf["GAP_MINUTES"]) * 60, int(conf["EXTRA_PER_DAY"])
 
 
@@ -112,7 +112,7 @@ def collect(s, known):
 
 
 def tick():
-    lock = open("/run/finance-refresh.lock", "w")
+    lock = open("/run/kaspi-refresh.lock", "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -126,7 +126,7 @@ def tick():
         s["extra_runs"] = today_extra(s) + [now]
         save(s)
         log(f"run {due}")
-        subprocess.run(["/opt/finance/run.sh", *due])
+        subprocess.run(["/opt/kaspi/run.sh", *due])
     else:
         save(s)
 
@@ -161,7 +161,7 @@ def finished(ids):
     msg = f"[refresh done {datetime.now().strftime('%H:%M')}] {', '.join(done)}: {result}"
     log(msg)
     subprocess.run(["runuser", "-u", BOT, "--", "env", f"HOME=/home/{BOT}", "PATH=/usr/local/bin:/usr/bin:/bin",
-                    "finance-bot-say", msg])
+                    "kaspi-bot-say", msg])
 
 
 def config(ids):

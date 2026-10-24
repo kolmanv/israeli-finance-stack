@@ -1,0 +1,3 @@
+# /etc/default/kaspi-refresh: minimum minutes between two scrapes of the same bank, and extra runs per day
+GAP_MINUTES=30
+EXTRA_PER_DAY=10

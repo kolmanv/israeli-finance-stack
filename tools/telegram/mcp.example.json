@@ -3,7 +3,7 @@
     "google": {
       "type": "stdio",
       "command": "sh",
-      "args": ["-c", "set -a; . ~/.config/finance-google/google.env; exec ~/.local/share/workspace-mcp/bin/workspace-mcp --permissions drive:full sheets:full --disabled-tools start_google_auth manage_drive_access set_drive_file_permissions --single-user"]
+      "args": ["-c", "set -a; . ~/.config/kaspi-google/google.env; exec ~/.local/share/workspace-mcp/bin/workspace-mcp --permissions drive:full sheets:full --disabled-tools start_google_auth manage_drive_access set_drive_file_permissions --single-user"]
     },
     "wa": {"type": "http", "url": "http://127.0.0.1:8770/mcp"}
   }

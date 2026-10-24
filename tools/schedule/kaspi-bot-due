@@ -1,12 +1,12 @@
 #!/bin/bash
-# Feed due one-off reminders to the bot. File: ~/finance/reminders/scheduled.tsv
+# Feed due one-off reminders to the bot. File: ~/kaspi/reminders/scheduled.tsv
 # Line format: YYYY-MM-DD HH:MM<TAB>prompt. Sent lines move to scheduled.done.tsv.
-F=$HOME/finance/reminders/scheduled.tsv; D=$HOME/finance/reminders/scheduled.done.tsv
+F=$HOME/kaspi/reminders/scheduled.tsv; D=$HOME/kaspi/reminders/scheduled.done.tsv
 [ -s "$F" ] || exit 0
 now=$(date '+%Y-%m-%d %H:%M'); keep=$(mktemp)
 while IFS=$'\t' read -r when prompt; do
   [ -z "$when" ] || [[ "$when" == \#* ]] && { printf '%s\t%s\n' "$when" "$prompt" >> "$keep"; continue; }
-  if [[ ! "$when" > "$now" ]] && finance-bot-say "[scheduled reminder, set for $when] $prompt"; then
+  if [[ ! "$when" > "$now" ]] && kaspi-bot-say "[scheduled reminder, set for $when] $prompt"; then
     printf '%s\t%s\tsent %s\n' "$when" "$prompt" "$now" >> "$D"
   else
     printf '%s\t%s\n' "$when" "$prompt" >> "$keep"

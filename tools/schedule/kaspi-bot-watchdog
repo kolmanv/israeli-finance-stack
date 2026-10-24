@@ -1,0 +1,13 @@
+#!/bin/bash
+# 09:30 check (as kaspi): did the bot send today's digest? If not, tell the user
+# directly through the Telegram Bot API, without Claude. Config: /etc/kaspi-watchdog.conf (CHAT_ID).
+. /etc/kaspi-watchdog.conf
+M=$HOME/kaspi/state/digest-sent
+[ "$(cat "$M" 2>/dev/null)" = "$(date +%F)" ] && exit 0
+if tmux has-session -t kaspi 2>/dev/null; then why="the bot is running but didn't send today's digest"
+else why="the bot session isn't running"; fi
+TOKEN=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$HOME/.claude/channels/telegram/.env")
+curl -fsS -m 20 "https://api.telegram.org/bot$TOKEN/sendMessage" \
+  --data-urlencode "chat_id=$CHAT_ID" \
+  --data-urlencode "text=⚠️ kaspi watchdog: $why ($(date '+%F %H:%M')). Check the kaspi container." >/dev/null \
+  || echo "$(date -Is) watchdog: Telegram send failed" >&2

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Ask for an on-demand import (run by the bot user). Usage: finance-refresh-request all | <bank>...
+# Ask for an on-demand import (run by the bot user). Usage: kaspi-refresh-request all | <bank>...
 # Banks are moneyman companyIds (e.g. leumi, discount, visaCal or cal, isracard). Root runs it as soon as the caps
 # allow and types "[refresh done ...]" into the bot session when it finishes. Prints the current queue.
 [ $# -gt 0 ] || { sed -n 2,4p "$0" | cut -c3-; exit 1; }
-D=/var/lib/finance-refresh
+D=/var/lib/kaspi-refresh
 f=$(mktemp -p $D/requests req.XXXXXX) && printf '%s\n' "$@" > "$f" || exit 1
 echo "Requested: $*. Root picks it up within a minute; current queue (before this request):"
 cat $D/status.json 2>/dev/null

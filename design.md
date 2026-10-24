@@ -84,7 +84,7 @@ Only moneyman touches the banks. Everything else reaches only Actual's data.
 - `pct set <CTID> --features nesting=1,keyctl=1` (needed for Docker).
 - Inside: `curl -fsSL https://get.docker.com | sh`. Chromium ships in moneyman's image (headless, `--no-sandbox`, one browser at a time).
 
-### 2. `/opt/finance/docker-compose.yml` (directory root-owned)
+### 2. `/opt/kaspi/docker-compose.yml` (directory root-owned)
 
 ```yaml
 services:
@@ -108,7 +108,7 @@ services:
 volumes: { actual_data: {} }
 ```
 
-`cd /opt/finance && docker compose up -d`
+`cd /opt/kaspi && docker compose up -d`
 
 ### 3. Prepare Actual
 
@@ -116,7 +116,7 @@ volumes: { actual_data: {} }
 2. Create **one on-budget account per bank account and card**, including both spouses' cards (a card left out leaves its bill counted as an expense).
 3. Note the **Sync ID** (Settings → Advanced) and the account IDs (`actual accounts list`, after step 6).
 
-### 4. `/opt/finance/moneyman.json` (bank logins)
+### 4. `/opt/kaspi/moneyman.json` (bank logins)
 
 ```jsonc
 {
@@ -156,7 +156,7 @@ volumes: { actual_data: {} }
 # history: set "daysBack": 365, run once, then set it back to 30
 docker compose run --rm moneyman
 # root's crontab:
-0 7,19 * * * cd /opt/finance && docker compose run --rm moneyman >> /var/log/moneyman.log 2>&1; echo "$(date -Is) exit=$?" >> /var/log/moneyman.status
+0 7,19 * * * cd /opt/kaspi && docker compose run --rm moneyman >> /var/log/moneyman.log 2>&1; echo "$(date -Is) exit=$?" >> /var/log/moneyman.status
 ```
 
 ### 6. Claude Code
@@ -171,30 +171,30 @@ Install Node 22+ (Debian 13 ships 20: use the official Node LTS tarball), Claude
 The Telegram session runs unattended, reads documents people send it, and can reach the internet. If it runs as root, one crafted document can make it read `moneyman.json` (the bank logins) and send it out. `permissions.deny` rules and a `CLAUDE.md` line only stop honest mistakes, not that. Let Linux enforce it:
 
 ```bash
-useradd -m -s /bin/bash finbot            # no sudo, not in the docker group (docker = root)
-# install Claude Code and Bun as finbot (the Telegram plugin is a Bun program), log in,
-# copy ~/.actualrc.json (chmod 600) and the folder with CLAUDE.md to /home/finbot/finance
-chmod 700 /opt/finance                    # finbot can't read moneyman.json or run scrapes
-chgrp finbot /var/log/moneyman.status && chmod 640 /var/log/moneyman.status   # import health only
+useradd -m -s /bin/bash kaspi            # no sudo, not in the docker group (docker = root)
+# install Claude Code and Bun as kaspi (the Telegram plugin is a Bun program), log in,
+# copy ~/.actualrc.json (chmod 600) and the folder with CLAUDE.md to /home/kaspi/kaspi
+chmod 700 /opt/kaspi                    # kaspi can't read moneyman.json or run scrapes
+chgrp kaspi /var/log/moneyman.status && chmod 640 /var/log/moneyman.status   # import health only
 ```
 
-- `tools/telegram/start-bot.sh` starts the session (it sets PATH and turns off claude.ai account connectors such as Drive), `cron-reboot.example` starts it at boot, both as `finbot`.
-- Every cron job that runs a script the bot can edit must run as `finbot`, never as root.
-- Check: `su - finbot -c 'cat /opt/finance/moneyman.json'` must say *Permission denied*.
+- `tools/telegram/start-bot.sh` starts the session (it sets PATH and turns off claude.ai account connectors such as Drive), `cron-reboot.example` starts it at boot, both as `kaspi`.
+- Every cron job that runs a script the bot can edit must run as `kaspi`, never as root.
+- Check: `su - kaspi -c 'cat /opt/kaspi/moneyman.json'` must say *Permission denied*.
 - Lock the Telegram plugin to an allowlist of your own accounts (`/telegram:access`).
 - Reminders the bot schedules inside its session (`CronCreate`) live in memory: a restart loses them and recurring ones expire after 7 days. Anything that must survive goes in cron (step 8).
 - `start-bot.sh` uses `--continue`, so a restart resumes the same conversation instead of starting a new one.
 
 ### 8. Durable schedule, import health and a watchdog
 
-Everything the bot must do on time is plain cron, run as `finbot`, through root-owned scripts in `tools/schedule/` (installed to `/usr/local/bin`, so the bot can run but not edit them). `cron.example` is the whole schedule:
+Everything the bot must do on time is plain cron, run as `kaspi`, through root-owned scripts in `tools/schedule/` (installed to `/usr/local/bin`, so the bot can run but not edit them). `cron.example` is the whole schedule:
 
 | When | What |
 |---|---|
-| After each import | `finance-import-summary` (root, called from `run.sh`) reads the root-only moneyman log and writes `/var/lib/finance-health/imports.json` (`root:finbot 640`): per bank `last_success`, `last_failure`, `last_error`, `consecutive_failures`. No transactions, no logins |
-| 08:07 | `finance-bot-say` types `[daily 08:07] …` into the session: the bot sends its digest with import health, then writes the date to `~/finance/state/digest-sent` |
-| Every 5 min | `finance-bot-due` feeds due lines of `~/finance/reminders/scheduled.tsv` (`YYYY-MM-DD HH:MM<TAB>prompt`) to the bot |
-| 09:30 | `finance-bot-watchdog`: no digest today → one Telegram message straight from the Bot API to `CHAT_ID` (`/etc/finance-watchdog.conf`), without Claude, saying whether the session is down or just silent |
+| After each import | `kaspi-import-summary` (root, called from `run.sh`) reads the root-only moneyman log and writes `/var/lib/kaspi-health/imports.json` (`root:kaspi 640`): per bank `last_success`, `last_failure`, `last_error`, `consecutive_failures`. No transactions, no logins |
+| 08:07 | `kaspi-bot-say` types `[daily 08:07] …` into the session: the bot sends its digest with import health, then writes the date to `~/kaspi/state/digest-sent` |
+| Every 5 min | `kaspi-bot-due` feeds due lines of `~/kaspi/reminders/scheduled.tsv` (`YYYY-MM-DD HH:MM<TAB>prompt`) to the bot |
+| 09:30 | `kaspi-bot-watchdog`: no digest today → one Telegram message straight from the Bot API to `CHAT_ID` (`/etc/kaspi-watchdog.conf`), without Claude, saying whether the session is down or just silent |
 | Sunday 04:00 | Restart, so Claude updates apply (`--continue` keeps the conversation) |
 
 Tell the bot in its `CLAUDE.md`: don't use `CronCreate` for anything that must survive; add one-off reminders to `scheduled.tsv`; report a bank only after 48 hours without a successful import (a single failed run is normal); `LOGIN_FAILED`/`CHANGE_PASSWORD` need the user, `GENERIC` timeouts usually fix themselves.

@@ -1,5 +1,5 @@
 {
-  "moneymanOutputDir": "/opt/finance/output",
+  "moneymanOutputDir": "/opt/kaspi/output",
   "lookbackDays": 60,
   "amountTolerance": 1,
   "dayTolerance": 3,
