@@ -201,6 +201,15 @@ Tell the bot in its `CLAUDE.md`: don't use `CronCreate` for anything that must s
 
 ---
 
+### 9. Tasks: money to-dos for the household
+
+Some things only a person can do: cancel a subscription, claim a refund for a double charge, upload a missing policy, type a new bank password. The bot keeps them as files, so they survive restarts and both of you see the same list:
+
+- One folder per task, `~/kaspi/tasks/<area>/<task>/task.md` (areas such as `bills`, `cards`, `subscriptions`, `insurance`, `savings`, `tax`), with header lines `title`, `pri` (P0 today, P1 money at risk or someone waits, P2 this week, P3 someday), `since`, `status` (new / waiting / done), `who` (which of you acts), `source` (the Telegram ask, the Actual transaction, the mail), `done-when`, optional `due`, and an `## Updates` log.
+- Waiting more than 7 days bumps the priority one level. A task closes only with evidence: the person saying so, or the live data (no charge from the merchant since the cancellation, the refund in Actual). Folders are never deleted.
+- `TASKS.md` is the table of open tasks, rebuilt after every change; the daily digest lists P0/P1, what is due within 7 days and what closed.
+- Allow the bot `Edit`/`Write` on `~/kaspi/tasks/**` and `~/kaspi/TASKS.md` in its settings, and describe all of this in its `CLAUDE.md`. The format follows [nudnik](https://github.com/kolmanv/nudnik)'s tasks.
+
 ## Categorization
 
 ### Card bills → transfers (one rule per card company)
